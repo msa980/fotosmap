@@ -8,6 +8,7 @@ import time
 import datetime
 import logging as log
 import configargparse
+from progress.bar import IncrementalBar
 
 from shapely.geometry import Point, mapping
 from hachoir_core.error import HachoirError
@@ -79,7 +80,9 @@ def geo_data(lat,lon):
         geolist = (geocoded.country, geocoded.city, geocoded.json['raw']['street'], geocoded.postal)
         return geolist
     except Exception as e:
-        print e
+        log.error(e)
+        geolist = ('unknown','unknown','unknown','unknown')
+        return geolist
 
 
 # Get metadata for video file
@@ -99,10 +102,10 @@ def metadata_for(filename):
         print "Unable to extract metadata"
         exit(1)
 
-    text = metadata.exportPlaintext()
-    charset = getTerminalCharset()
-    for line in text:
-        print makePrintable(line, charset)
+    # text = metadata.exportPlaintext()
+    # charset = getTerminalCharset()
+    # for line in text:
+    #     print makePrintable(line, charset)
 
     return metadata
 
@@ -156,7 +159,7 @@ def build_feature(path, gps):
     datetime = gps['DateTime']
 
     feature = {"type": "Feature", 'geometry': mapping(point), "properties":
-                {'name': file, 'country': country, 'city': city, 'street': street, 'postal': pc,
+                {'name': path.split("/")[-1], 'country': country, 'city': city, 'street': street, 'postal': pc,
                     'DateTime': datetime, 'Year': year, 'path': path}}
     return feature
 
@@ -170,8 +173,27 @@ def build_item(path, gps, item_type):
     return f
 
 
+def iterate_files(inp):
+    for dirpath, dirs, files in os.walk(inp):
+        for filename in files:
+            fname = os.path.join(dirpath, filename)
+            yield fname
+
+
+def count_files(inp):
+    t = 0
+    for dirpath, dirs, files in os.walk(inp):
+        for filename in files:
+            t += 1
+    return t
+
+
 def process(args):
-    log.basicConfig(level=log.INFO)
+    log.basicConfig(level=log.WARNING)
+
+    fl = count_files(args.input)
+
+    log.info('Processing %s files...' % fl)
 
     fotos_files = 0
     processed = 0
@@ -182,84 +204,59 @@ def process(args):
     mov_files = 0
     total = 0
 
-    ofile = args.output.rstrip('/') + 'output.geojson'
+    ofile = args.output.rstrip('/') + '/output.geojson'
 
-    if os.path.isfile(ofile) is True:
-        js = open(ofile,'r')
-        content = json.load(js)['features']
-        js.close()
-        j = open(ofile, 'w')
-    else:
-        j = open(ofile, 'w')
-        content = []
-
-    for root, dir, files in os.walk(args.input):
-
-        fl = len(files)
-
-        for file in files:
-            if file.startswith("."):
-                not_media += 1
-                total += 1
-                continue
-
-            f = open('%s%s' % (root, file), 'rb')
+    content = []
+    bar = IncrementalBar('Processing', max=fl)
+    for file_name in iterate_files(args.input):
+        if not file_name.lower().endswith('.mov') and (file_name.startswith(".") or
+                                                               len(ef.process_file(open(file_name, 'rb'))) == 0):
+            not_media += 1
+        else:
             try:
-                if len(ef.process_file(f)) == 0:
-                    not_media += 1
-                    total += 1
-                    continue
-
-                elif len(ef.process_file(f)) > 0:
-                    fotos_files += 1
-                    gps = getGPS('%s%s' % (root, file))
+                if len(ef.process_file(open(file_name, 'rb'))) > 0 and not file_name.lower().endswith('.mov'):
+                    gps = getGPS(file_name)
                     if gps['latitude'] != 'none' and gps['longitude'] != 'none':
-                        feature = build_item('%s%s' % (root, file), gps, 'foto')
+                        feature = build_item(file_name, gps, 'foto')
                         content.append(feature)
+                        fotos_files += 1
                         processed += 1
-                        total += 1
+
                     else:
                         fotos_not_exif += 1
-                        total += 1
 
-                elif file.lower().endswith('.mov'):
-                    mov_files += 1
-                    gps = movgps('%s%s' % (root, file))
+                elif file_name.lower().endswith('.mov'):
+                    gps = movgps(file_name)
                     if gps['latitude'] != 'none':
-                        feature = build_item('%s%s' % (root, file), gps, 'mov')
-                        content.append(feature)
+                        feature = build_item(file_name, gps, 'mov')
                         content.append(feature)
                         processed += 1
-                        total += 1
+                        mov_files += 1
 
                     else:
                         mov_not_exif += 1
-                        total += 1
 
             except Exception as e:
                 log.error(e)
                 failed += 1
-                total += 1
 
-            if (files.index(file) + 1) == round(fl / 4):
-                log.info('25% processed.')
-            elif (files.index(file) + 1) == round(fl / 2):
-                log.info('50% processed.')
-            elif (files.index(file) + 1) == round(fl / 4) * 3:
-                log.info('75% processed.')
+        total += 1
+        bar.next()
+    bar.finish()
 
-    log.info('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '
+    print ('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '
              '| NOT MEDIA: %s | FAILED: %s' %
              (total, processed, fotos_files, mov_files, fotos_not_exif, mov_not_exif, not_media, failed))
 
+    j = open(ofile, 'w')
     json.dump({"type": "FeatureCollection", "features": content}, j)
     j.close()
 
 
 def main():
     parser = configargparse.ArgParser()
-    parser.add('input', type=str, metavar='PATH', help='Path to input directory')
-    parser.add('output', type=str, metavar='PATH', help='Path for output geojson',
+    parser.add('input', type=str, metavar='input', help='Path to input directory')
+    parser.add('output', type=str, metavar='output', help='Path for output geojson',
                default='~/Desktop/')
     parser.set_defaults(func=process)
     args = parser.parse_args()
@@ -268,4 +265,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    

@@ -238,46 +238,53 @@ def process(args):
         cindex = {}
 
     bar = IncrementalBar('Processing', max=fl)
-    for file_name in iterate_files(args.input):
-        if not file_name.lower().endswith('.mov') and (file_name.startswith(".") or
-                                                               len(ef.process_file(open(file_name, 'rb'))) == 0):
-            not_media += 1
-        else:
-            try:
-                if len(ef.process_file(open(file_name, 'rb'))) > 0 and not file_name.lower().endswith('.mov'):
-                    gps = getGPS(file_name)
-                    if gps['latitude'] != 'none' and gps['longitude'] != 'none':
-                        feature = build_item(file_name, gps, 'foto')
-                        if not check_content(cindex, feature):
-                            content.append(feature)
-                            fotos_files += 1
-                            processed += 1
-                            cindex[feature['properties']['name']] = feature['properties']['DateTime']
+    try:
+        for file_name in iterate_files(args.input):
+            if not file_name.lower().endswith('.mov') and (file_name.startswith(".") or
+                                                                   len(ef.process_file(open(file_name, 'rb'))) == 0):
+                not_media += 1
+            else:
+                try:
+                    if len(ef.process_file(open(file_name, 'rb'))) > 0 and not file_name.lower().endswith('.mov'):
+                        gps = getGPS(file_name)
+                        if gps['latitude'] != 'none' and gps['longitude'] != 'none':
+                            feature = build_item(file_name, gps, 'foto')
+                            if not check_content(cindex, feature):
+                                content.append(feature)
+                                fotos_files += 1
+                                processed += 1
+                                cindex[feature['properties']['name']] = feature['properties']['DateTime']
+                            else:
+                                copies += 1
                         else:
-                            copies += 1
-                    else:
-                        fotos_not_exif += 1
+                            fotos_not_exif += 1
 
-                elif file_name.lower().endswith('.mov'):
-                    gps = movgps(file_name)
-                    if gps['latitude'] != 'none':
-                        feature = build_item(file_name, gps, 'mov')
-                        if not check_content(cindex, feature):
-                            content.append(feature)
-                            mov_files += 1
-                            processed += 1
-                            cindex[feature['properties']['name']] = feature['properties']['DateTime']
+                    elif file_name.lower().endswith('.mov'):
+                        gps = movgps(file_name)
+                        if gps['latitude'] != 'none':
+                            feature = build_item(file_name, gps, 'mov')
+                            if not check_content(cindex, feature):
+                                content.append(feature)
+                                mov_files += 1
+                                processed += 1
+                                cindex[feature['properties']['name']] = feature['properties']['DateTime']
+                            else:
+                                copies += 1
                         else:
-                            copies += 1
-                    else:
-                        mov_not_exif += 1
+                            mov_not_exif += 1
 
-            except Exception as e:
-                log.error(e)
-                failed += 1
+                except Exception as e:
+                    log.error(e)
+                    failed += 1
 
-        total += 1
-        bar.next()
+            total += 1
+            bar.next()
+
+    except KeyboardInterrupt:
+        print
+        print
+        log.error('Interrupted by user. Killed.')
+
     bar.finish()
 
     print ('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '

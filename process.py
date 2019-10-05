@@ -7,6 +7,7 @@ import re
 import time
 import datetime
 import logging as log
+import configargparse
 
 from shapely.geometry import Point, mapping
 from hachoir_core.error import HachoirError
@@ -194,7 +195,7 @@ def process(args):
 
     for root, dir, files in os.walk(args.input):
 
-        l = len(files)
+        fl = len(files)
 
         for file in files:
             if file.startswith("."):
@@ -240,11 +241,11 @@ def process(args):
                 failed += 1
                 total += 1
 
-            if (files.index(file) + 1) == round(l / 4):
+            if (files.index(file) + 1) == round(fl / 4):
                 log.info('25% processed.')
-            elif (files.index(file) + 1) == round(l / 2):
+            elif (files.index(file) + 1) == round(fl / 2):
                 log.info('50% processed.')
-            elif (files.index(file) + 1) == round(l / 4) * 3:
+            elif (files.index(file) + 1) == round(fl / 4) * 3:
                 log.info('75% processed.')
 
     log.info('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '
@@ -254,3 +255,17 @@ def process(args):
     json.dump({"type": "FeatureCollection", "features": content}, j)
     j.close()
 
+
+def main():
+    parser = configargparse.ArgParser()
+    parser.add('input', type=str, metavar='PATH', help='Path to input directory')
+    parser.add('output', type=str, metavar='PATH', help='Path for output geojson',
+               default='~/Desktop/')
+    parser.set_defaults(func=process)
+    args = parser.parse_args()
+    return args.func(args)
+
+
+if __name__ == '__main__':
+    main()
+    

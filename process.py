@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import os
-import subprocess
 import json
 import re
 import time
 import datetime
+import logging as log
 
 from shapely.geometry import Point, mapping
 from hachoir_core.error import HachoirError
@@ -144,6 +144,7 @@ def timestamp():
 
 
 def build_feature(path, gps):
+    p = re.compile('[0-9.]+[a-zA-Z]\s|\s[0-9.]+[a-zA-Z]|[0-9.]+\s|\s[0-9.]+')
     point = Point(gps['longitude'], gps['latitude'])
     tags = geo_data(gps['latitude'], gps['longitude'])
     country = tags[0]
@@ -165,9 +166,20 @@ def build_item(path, gps, item_type):
         f['properties']['Device'] = gps['Device']
     elif item_type == 'mov':
         f['properties']['Device'] = 'iPhoneCamera'
+    return f
 
 
 def process(args):
+    log.basicConfig(level=log.INFO)
+
+    fotos_files = 0
+    processed = 0
+    not_media = 0
+    failed = 0
+    fotos_not_exif = 0
+    mov_not_exif = 0
+    mov_files = 0
+    total = 0
 
     ofile = args.output.rstrip('/') + 'output.geojson'
 
@@ -175,95 +187,70 @@ def process(args):
         js = open(ofile,'r')
         content = json.load(js)['features']
         js.close()
-        j = open(ofile,'w')
+        j = open(ofile, 'w')
     else:
         j = open(ofile, 'w')
         content = []
 
-    p = re.compile('[0-9.]+[a-zA-Z]\s|\s[0-9.]+[a-zA-Z]|[0-9.]+\s|\s[0-9.]+')
+    for root, dir, files in os.walk(args.input):
 
-    for folder in folders:
-        for file in os.listdir(folder):
-            print file
-            f = open('%s/%s' % (folder, file), 'rb')
+        l = len(files)
+
+        for file in files:
+            if file.startswith("."):
+                not_media += 1
+                total += 1
+                continue
+
+            f = open('%s%s' % (root, file), 'rb')
             try:
-                if len(ef.process_file(f)) > 0: # Foto con EXIF
-                    gps = getGPS('%s/%s' % (folder, file))
-                    print str(gps['latitude']) + " " + str(gps['longitude'])
-                    if gps['latitude'] != 'none' and gps['longitude'] != 'none': #Foto con EXIF y GPS
-                        point = Point(gps['longitude'], gps['latitude'])
-                        tags = geo_data(gps['latitude'], gps['longitude'])
-                        country = tags[0]
-                        city = tags[1]
-                        street = re.sub(p, "", tags[2])
-                        pc = tags[3]
-                        finalf = street + "-" + pc
-                        year = gps['date']
-                        datetime = gps['DateTime']
-                        device = gps['Device']
+                if len(ef.process_file(f)) == 0:
+                    not_media += 1
+                    total += 1
+                    continue
 
-                        inpath = folder + "/" + file
-                        outpath = out_folder + country + "/" + city + "/" + finalf + "/" + year + "/" + file
+                elif len(ef.process_file(f)) > 0:
+                    fotos_files += 1
+                    gps = getGPS('%s%s' % (root, file))
+                    if gps['latitude'] != 'none' and gps['longitude'] != 'none':
+                        feature = build_item('%s%s' % (root, file), gps, 'foto')
+                        content.append(feature)
+                        processed += 1
+                        total += 1
+                    else:
+                        fotos_not_exif += 1
+                        total += 1
 
-                        if os.path.isfile(outpath) is False: # Archivo no existe
+                elif file.lower().endswith('.mov'):
+                    mov_files += 1
+                    gps = movgps('%s%s' % (root, file))
+                    if gps['latitude'] != 'none':
+                        feature = build_item('%s%s' % (root, file), gps, 'mov')
+                        content.append(feature)
+                        content.append(feature)
+                        processed += 1
+                        total += 1
 
-                            feature = {"type": "Feature", 'geometry': mapping(point), "properties":
-                                {'name': file, 'country': country, 'city': city, 'street': street, 'postal': pc,
-                                'DateTime': datetime, 'Device': device, 'path': inpath}}
-                            content.append(feature)
-                        else: # Archivo ya existe
-                            if filecheck(inpath,outpath) is True: # Es el mismo archivo
-                                print "File already in destination folder. Skipping..."
-                            else: # Tiene el mismo nombre pero son distintos archivos
-                                ts = timestamp()
-                                outpath = out_folder + country + "/" + city + "/" + finalf + "/" + year + "/" + file[:-4] \
-                                          + "_" + str(ts) + file[-4:]
-
-                                feature = {"type": "Feature", 'geometry': mapping(point), "properties":
-                                    {'name': file, 'country': country, 'city': city, 'street': street, 'postal': pc,
-                                    'DateTime': datetime, 'Device': device,'path': folder + "/" + file}}
-                                content.append(feature)
-
-                else:
-                    if file.lower().endswith('.mov'): # Es MOV
-                        gps = movgps(folder + "/" + file)
-                        if gps['latitude'] != 'none': # Es MOV y tiene GPS
-                            point = Point(gps['longitude'], gps['latitude'])
-                            tags = geo_data(gps['latitude'], gps['longitude'])
-                            country = tags[0]
-                            city = tags[1]
-                            street = re.sub(p, "", tags[2])
-                            pc = tags[3]
-                            finalf = street + "-" + pc
-                            year = gps['date']
-                            datetime = gps['DateTime']
-
-                            inpath = folder + "/" + file
-                            outpath = out_folder + country + "/" + city + "/" + finalf + "/" + year + "/" + file
-
-                            if os.path.isfile(outpath) is False:  # Archivo no existe
-
-                                feature = {"type": "Feature", 'geometry': mapping(point), "properties":
-                                    {'name': file, 'country': country, 'city': city, 'street': street, 'postal': pc,
-                                    'DateTime': datetime, 'Device': 'Unknown','path': folder + "/" + file}}
-                                content.append(feature)
-                            else:  # Archivo ya existe
-                                if filecheck(inpath, outpath) is True:  # Es el mismo archivo
-                                    print "File already in destination folder. Skipping..."
-                                else:  # Tiene el mismo nombre pero son distintos archivos
-                                    ts = timestamp()
-                                    outpath = out_folder + country + "/" + city + "/" + finalf + "/" + year + "/" + file[:-4] \
-                                            + "_" + str(ts) + file[-4:]
-
-                                    feature = {"type": "Feature", 'geometry': mapping(point), "properties":
-                                        {'name': file, 'country': country, 'city': city, 'street': street, 'postal': pc,
-                                        'DateTime': datetime, 'Device': 'Unknown','path': folder + "/" + file}}
-                                    content.append(feature)
+                    else:
+                        mov_not_exif += 1
+                        total += 1
 
             except Exception as e:
-                print e
+                log.error(e)
+                failed += 1
+                total += 1
+
+            if (files.index(file) + 1) == round(l / 4):
+                log.info('25% processed.')
+            elif (files.index(file) + 1) == round(l / 2):
+                log.info('50% processed.')
+            elif (files.index(file) + 1) == round(l / 4) * 3:
+                log.info('75% processed.')
+
+    log.info('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '
+             '| NOT MEDIA: %s | FAILED: %s' %
+             (total, processed, fotos_files, mov_files, fotos_not_exif, mov_not_exif, not_media, failed))
 
     json.dump({"type": "FeatureCollection", "features": content}, j)
     j.close()
-
 

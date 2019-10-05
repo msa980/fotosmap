@@ -14,9 +14,7 @@ from shapely.geometry import Point, mapping
 from hachoir_core.error import HachoirError
 from hachoir_core.cmd_line import unicodeFilename
 from hachoir_parser import createParser
-from hachoir_core.tools import makePrintable
 from hachoir_metadata import extractMetadata
-from hachoir_core.i18n import getTerminalCharset
 import geocoder
 import exifread as ef
 import mmap
@@ -299,7 +297,7 @@ def main():
     parser = configargparse.ArgParser()
     parser.add('input', type=str, metavar='input', help='Path to input directory')
     parser.add('output', type=str, metavar='output', help='Path for output geojson',
-               default='~/Desktop/')
+               default='.')
     parser.set_defaults(func=process)
     args = parser.parse_args()
     return args.func(args)

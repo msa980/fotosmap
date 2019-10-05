@@ -188,12 +188,31 @@ def count_files(inp):
     return t
 
 
+def check_content(cindex, feature):
+    try:
+        if cindex[feature['properties']['name']] == feature['properties']['DateTime']:
+            #log.warning('Duplicated found: %s' % feature['properties']['path'])
+            return True
+        else:
+            return False
+    except KeyError:
+        return False
+
+
+def load_cindex(content):
+    d = {}
+    log.warning('Output file exists. Loading %s features' % len(content))
+    for f in content:
+        d[f['properties']['name']] = f['properties']['DateTime']
+    return d
+
+
 def process(args):
-    log.basicConfig(level=log.WARNING)
+    log.basicConfig(level=log.WARNING, format='%(message)s')
 
     fl = count_files(args.input)
 
-    log.info('Processing %s files...' % fl)
+    log.warning('Processing %s files.' % fl)
 
     fotos_files = 0
     processed = 0
@@ -203,10 +222,21 @@ def process(args):
     mov_not_exif = 0
     mov_files = 0
     total = 0
+    copies = 0
 
     ofile = args.output.rstrip('/') + '/output.geojson'
 
-    content = []
+    if os.path.isfile(ofile):
+        js = open(ofile, 'r')
+        content = json.load(js)['features']
+        cindex = load_cindex(content)
+        js.close()
+        j = open(ofile, 'w')
+    else:
+        j = open(ofile, 'w')
+        content = []
+        cindex = {}
+
     bar = IncrementalBar('Processing', max=fl)
     for file_name in iterate_files(args.input):
         if not file_name.lower().endswith('.mov') and (file_name.startswith(".") or
@@ -218,10 +248,13 @@ def process(args):
                     gps = getGPS(file_name)
                     if gps['latitude'] != 'none' and gps['longitude'] != 'none':
                         feature = build_item(file_name, gps, 'foto')
-                        content.append(feature)
-                        fotos_files += 1
-                        processed += 1
-
+                        if not check_content(cindex, feature):
+                            content.append(feature)
+                            fotos_files += 1
+                            processed += 1
+                            cindex[feature['properties']['name']] = feature['properties']['DateTime']
+                        else:
+                            copies += 1
                     else:
                         fotos_not_exif += 1
 
@@ -229,10 +262,13 @@ def process(args):
                     gps = movgps(file_name)
                     if gps['latitude'] != 'none':
                         feature = build_item(file_name, gps, 'mov')
-                        content.append(feature)
-                        processed += 1
-                        mov_files += 1
-
+                        if not check_content(cindex, feature):
+                            content.append(feature)
+                            mov_files += 1
+                            processed += 1
+                            cindex[feature['properties']['name']] = feature['properties']['DateTime']
+                        else:
+                            copies += 1
                     else:
                         mov_not_exif += 1
 
@@ -245,10 +281,9 @@ def process(args):
     bar.finish()
 
     print ('Finished: TOTAL: %s | PROCESSED: %s | FOTOS: %s | MOVs: %s | FOTOS W/O EXIF: %s | MOV W/O EXIF: %s '
-             '| NOT MEDIA: %s | FAILED: %s' %
-             (total, processed, fotos_files, mov_files, fotos_not_exif, mov_not_exif, not_media, failed))
+             '| NOT MEDIA: %s | FAILED: %s | COPIES: %s' %
+             (total, processed, fotos_files, mov_files, fotos_not_exif, mov_not_exif, not_media, failed, copies))
 
-    j = open(ofile, 'w')
     json.dump({"type": "FeatureCollection", "features": content}, j)
     j.close()
 

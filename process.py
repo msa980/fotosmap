@@ -187,6 +187,7 @@ def count_files(inp):
             t += 1
             counter.next()
     counter.finish()
+    print
     return t
 
 

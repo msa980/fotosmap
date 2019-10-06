@@ -199,18 +199,16 @@ def check_content(cindex, feature):
 
 def load_cindex(content):
     d = {}
-    log.warning('Output file exists. Loading %s features' % len(content))
+    print('Output file exists. Loading %s features' % len(content))
     for f in content:
         d[f['properties']['name']] = f['properties']['DateTime']
     return d
 
 
 def process(args):
-    log.basicConfig(level=log.WARNING, format='%(message)s')
+    log.basicConfig(level=log.ERROR, format='%(levelname)s:%(message)s')
 
     fl = count_files(args.input)
-
-    log.warning('Processing %s files.' % fl)
 
     fotos_files = 0
     processed = 0
@@ -225,11 +223,18 @@ def process(args):
     ofile = args.output.rstrip('/') + '/output.geojson'
 
     if os.path.isfile(ofile):
-        js = open(ofile, 'r')
-        content = json.load(js)['features']
-        cindex = load_cindex(content)
-        js.close()
-        j = open(ofile, 'w')
+        try:
+            js = open(ofile, 'r')
+            content = json.load(js)['features']
+            cindex = load_cindex(content)
+        except ValueError:
+            print('GeoJSON corrupt. Overwritting.')
+            j = open(ofile, 'w')
+            content = []
+            cindex = {}
+        else:
+            js.close()
+            j = open(ofile, 'w')
     else:
         j = open(ofile, 'w')
         content = []
@@ -238,12 +243,21 @@ def process(args):
     bar = IncrementalBar('Processing', max=fl)
     try:
         for file_name in iterate_files(args.input):
+            try:
+                f = open(file_name, 'rb')
+            except Exception:
+                failed +=1
+                total +=1
+                bar.next()
+                continue
+
             if not file_name.lower().endswith('.mov') and (file_name.startswith(".") or
-                                                                   len(ef.process_file(open(file_name, 'rb'))) == 0):
+                                                                   len(ef.process_file(f)) == 0):
                 not_media += 1
             else:
                 try:
-                    if len(ef.process_file(open(file_name, 'rb'))) > 0 and not file_name.lower().endswith('.mov'):
+                    f = open(file_name, 'rb')
+                    if len(ef.process_file(f)) > 0 and not file_name.lower().endswith('.mov'):
                         gps = getGPS(file_name)
                         if gps['latitude'] != 'none' and gps['longitude'] != 'none':
                             feature = build_item(file_name, gps, 'foto')

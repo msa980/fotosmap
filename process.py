@@ -9,6 +9,7 @@ import datetime
 import logging as log
 import configargparse
 from progress.bar import IncrementalBar
+from progress.counter import Counter
 
 from shapely.geometry import Point, mapping
 from hachoir_core.error import HachoirError
@@ -179,10 +180,13 @@ def iterate_files(inp):
 
 
 def count_files(inp):
+    counter = Counter('Loading files tree... ')
     t = 0
     for dirpath, dirs, files in os.walk(inp):
         for filename in files:
             t += 1
+            counter.next()
+    counter.finish()
     return t
 
 
